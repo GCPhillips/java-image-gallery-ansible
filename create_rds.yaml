@@ -48,12 +48,13 @@
           Name: Module5 Setup
         user_data: "{{ lookup('file', './startup-scripts/ec2_db_startup.sh') }}"
       register: ec2_db_setup
+      when: db['changed'] == true
 #    - name: Show EC2 info
 #      debug: var=ec2_db_setup
     - name: Remove temporary EC2
       ec2:
         state: 'absent'
         instance_ids: "{{ ec2_db_setup.instance_ids }}"
-
+      when: db['changed'] == true
 
 
