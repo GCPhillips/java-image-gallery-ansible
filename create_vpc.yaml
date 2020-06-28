@@ -1,0 +1,215 @@
+---
+- hosts: localhost
+  # skips gathering all of the facts about the instance
+  gather_facts: no
+  vars:
+    aws_region: "us-east-2"
+  module_defaults:
+    group/aws:
+      region: "{{ aws_region }}"
+  tasks:
+    - name: Load secrets to memory
+      include_vars:
+        file: .secrets.yaml
+        name: secrets
+    - name: Create VPC
+      ec2_vpc_net:
+        name: Module5
+        cidr_block: 10.10.0.0/16
+        tags:
+          Module: 5
+        state: present
+      register: vpc
+    - name: Create VPC Public Subnet 1
+      ec2_vpc_subnet:
+        vpc_id: "{{ vpc.vpc.id }}"
+        tags:
+          Name: Module5 Public 1
+          Module: 5
+        cidr: 10.10.0.0/24
+        az: "{{ aws_region + 'a' }}"
+        state: present
+      register: public_subnet_1
+#    - name: Debug public subnet
+#      debug: var=public_subnet_1
+    - name: Create VPC Public Subnet 2
+      ec2_vpc_subnet:
+        vpc_id: "{{ vpc.vpc.id }}"
+        tags:
+          Name: Module5 Public 2
+          Module: 5
+        cidr: 10.10.1.0/24
+        az: "{{ aws_region + 'b' }}"
+        state: present
+      register: public_subnet_2
+    - name: Create VPC Private Subnet 1
+      ec2_vpc_subnet:
+        vpc_id: "{{ vpc.vpc.id }}"
+        tags:
+          Name: Module5 Private
+          Module: 5
+        cidr: 10.10.2.0/24
+        az: "{{ aws_region + 'a' }}"
+        state: present
+      register: private_subnet_1
+    - name: Create VPC Private Subnet 2
+      ec2_vpc_subnet:
+        vpc_id: "{{ vpc.vpc.id }}"
+        tags:
+          Name: Module5 Private
+          Module: 5
+        cidr: 10.10.3.0/24
+        az: "{{ aws_region + 'b' }}"
+        state: present
+      register: private_subnet_2
+    - name: Create Internet Gateway
+      ec2_vpc_igw:
+        vpc_id: "{{ vpc.vpc.id }}"
+        tags:
+          Name: Module5 gateway
+        state: present
+      register: igw
+    - name: Set up public subnet route table
+      ec2_vpc_route_table:
+        vpc_id: "{{ vpc.vpc.id }}"
+        tags:
+          Name: Module5Public
+        subnets:
+          - "{{ public_subnet_1.subnet.id }}"
+          - "{{ public_subnet_2.subnet.id }}"
+        routes:
+          - dest: 0.0.0.0/0
+            gateway_id: "{{ igw.gateway_id }}"
+        state: present
+      register: publicsubnet
+    - name: Create NAT gateway
+      ec2_vpc_nat_gateway:
+        subnet_id: "{{ public_subnet_1.subnet.id }}"
+        if_exist_do_not_create: yes
+        wait: yes
+        state: present
+      register: nat
+    - name: Set up private subnet route table
+      ec2_vpc_route_table:
+        vpc_id: "{{ vpc.vpc.id }}"
+        tags:
+          Name: Module5Private
+        subnets:
+          - "{{ private_subnet_1.subnet.id }}"
+          - "{{ private_subnet_2.subnet.id }}"
+        routes:
+          - dest: 0.0.0.0/0
+            gateway_id: "{{ nat.nat_gateway_id }}"
+    - name: Set up private subnet ACL
+      ec2_vpc_nacl:
+        vpc_id: "{{ vpc.vpc.id }}"
+        name: Module5-private-acl
+        subnets:
+          - "{{ private_subnet_1.subnet.id }}"
+          - "{{ private_subnet_2.subnet.id }}"
+        ingress:
+          - [100, 'tcp', 'allow', '10.10.0.0/16', null, null, 5432, 5432]
+          - [200, 'tcp', 'allow', '10.10.0.0/16', null, null, 443, 443]
+          - [300, 'tcp', 'allow', '10.10.0.0/16', null, null, 1024, 65535]
+        egress:
+          - [100, 'tcp', 'allow', '10.10.0.0/16', null, null, 1024, 65535]
+          - [200, 'tcp', 'allow', '10.10.0.0/16', null, null, 443, 443]
+        state: present
+    - name: Set up public subnet ACL
+      ec2_vpc_nacl:
+        vpc_id: "{{ vpc.vpc.id }}"
+        name: Module5-public-acl
+        subnets:
+          - "{{ public_subnet_1.subnet.id }}"
+          - "{{ public_subnet_2.subnet.id }}"
+        ingress: "{{ secrets.public_acl_rules['ingress'] }}"
+        egress: "{{ secrets.public_acl_rules['egress'] }}"
+        state: present
+    - name: Create postgres-tag security group
+      ec2_group:
+        name: Module5-postgres-tag-sg
+        description: Postgres-tag security group
+        vpc_id: "{{ vpc.vpc.id }}"
+        state: present
+      register: postgres_tag_sg
+    - name: Create postgres security group
+      ec2_group:
+        name: Module5-postgres-sg
+        description: Postgres security group
+        vpc_id: "{{ vpc.vpc.id }}"
+        rules:
+          - proto: tcp
+            ports: 5432
+            group_id: "{{ postgres_tag_sg.group_id }}"
+        rules_egress:
+          - proto: all
+            from_port: 1
+            to_port: 65535
+            cidr_ip: 0.0.0.0/0
+        state: present
+      register: postgres_sg
+    - name: Add postgres-tag-sg to postgres-sg
+      ec2_group:
+        name: Module5-postgres-tag-sg
+        description: Postgres-tag security group
+        vpc_id: "{{ vpc.vpc.id }}"
+        rules_egress:
+          - proto: tcp
+            ports: 5432
+            group_id: "{{ postgres_sg.group_id }}"
+        state: present
+    - name: Create nginx servers security group
+      ec2_group:
+        name: Module5-nginx-servers-sg
+        description: Allows HTTP in from internal public subnets
+        vpc_id: "{{ vpc.vpc.id }}"
+        rules:
+          - proto: tcp
+            ports: 80
+            cidr_ip: 10.10.0.0/24
+          - proto: tcp
+            ports: 80
+            cidr_ip: 10.10.1.0/24
+        rules_egress:
+          - proto: tcp
+            from_port: 1
+            to_port: 65535
+            cidr_ip: 0.0.0.0/0
+        state: present
+      register: nginx_sg
+    - name: Create development security group
+      ec2_group:
+        name: Module5-development-sg
+        description: Used for access from developers
+        vpc_id: "{{ vpc.vpc.id }}"
+        rules: "{{ secrets.development_sg_rules['rules'] }}"
+        rules_egress: "{{ secrets.development_sg_rules['rules_egress'] }}"
+      register: development_sg
+    - name: Create endpoint security group
+      ec2_group:
+        name: Module5-endpoint-sg
+        description: Used for endpoint access to RDS
+        vpc_id: "{{ vpc.vpc.id }}"
+        state: present
+    - name: Create endpoint-tag security group
+      ec2_group:
+        name: Module5-endpoint-tag-sg
+        description: Used for endpoint to RDS
+        vpc_id: "{{ vpc.vpc.id }}"
+        rules:
+          - proto: tcp
+            from_port: 1
+            to_port: 65535
+            group_name: Module5-endpoint-sg
+        state: present
+    - name: Add endpoint-tag-sg to endpoint-sg
+      ec2_group:
+        name: Module5-endpoint-sg
+        description: Used for endpoint access to RDS
+        vpc_id: "{{ vpc.vpc.id }}"
+        rules:
+          - proto: tcp
+            from_port: 1
+            to_port: 65535
+            group_name: Module5-endpoint-tag-sg
+        state: present

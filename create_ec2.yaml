@@ -1,0 +1,26 @@
+---
+- hosts: localhost
+  gather_facts: no
+  vars:
+    ami_id: "ami-026dea5602e368e96"
+  module_defaults:
+    group/aws:
+      region: "us-east-2"
+  tasks:
+    - name: Provision Developer EC2 instance
+      ec2:
+        key_name: mac-key
+        group: Module5-developer-sg
+        instance_type: t3.nano
+        image: "{{ ami_id }}"
+        instance_tags:
+          Name: Module5 Developer
+          Module: 5
+          Department: Developer
+        wait: yes
+        vpc_subnet_id: "{{ public_subnet.subnet.id }}"
+        assign_public_ip: yes
+        exact_count: 1
+        count_tag:
+          Name: Module5 Developer
+        user_data: "{{ lookup('file', './startup-scripts/ec2_startup.sh' }}"

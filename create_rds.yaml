@@ -1,0 +1,59 @@
+---
+- hosts: localhost
+  gather_facts: no
+  module_defaults:
+    group/aws:
+      region: us-east-2
+  tasks:
+    - name: Create the RDS subnet group
+      rds_subnet_group:
+        name: m5-private-dbgrp
+        description: "Subnet Group for M5 image gallery db"
+        subnets:
+          - "{{  private_subnet_1.subnet.id }}"
+          - "{{  private_subnet_2.subnet.id }}"
+        state: present
+      register: db_group
+    - name: Get Postgres Secret
+      set_fact: dbpassword="{{ lookup('aws_secret', 'm5-db-postgres-pass', region='us-east-2') }}"
+    - name: Show Postgres password
+      debug: var=dbpassword
+    - name: Create the RDS database
+      rds:
+        command: create
+        db_engine: postgres
+        db_name: m5db
+        instance_type: db.t2.micro
+        instance_name: m5-image-gallery-db
+        username: postgres
+        password: "{{ dbpassword.password }}"
+        size: 10
+        subnet: m5-private-dbgrp
+        vpc_security_groups: "{{ postgres_sg.group_id }}"
+      register: db
+    - name: Create the temporary EC2 to set up the database
+      ec2:
+        key_name: mint-tower
+        group: "{{ development_sg.group_name }}"
+        instance_type: t3.nano
+        image: "ami-026dea5602e368e96"
+        instance_tags:
+          Name: temp-db-setup
+          Module: 5
+        wait: yes
+        vpc_subnet_id: "{{ public_subnet_1.subnet.id }}"
+        assign_public_ip: yes
+        exact_count: 1
+        count_tag:
+          Name: Module5 Setup
+        user_data: "{{ lookup('file', './startup-scripts/ec2_db_startup.sh') }}"
+      register: ec2_db_setup
+    - name: Show EC2 info
+      debug: var=ec2_db_setup
+    - name: Remove temporary EC2
+      ec2:
+        state: 'absent'
+        instance_ids: "{{ ec2_db_setup.instance_ids }}"
+
+
+
