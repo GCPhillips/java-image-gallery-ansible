@@ -14,6 +14,7 @@
         stickiness_type: source_ip
         vpc_id: "{{ vpc.vpc.id }}"
         state: present
+        health_check_path: /
       register: nlb_tg
  #   - name: Show debug for NLB-TG
  #     debug: var=nlb_tg
@@ -39,6 +40,8 @@
             AllocationId: "{{ eip_one.addresses[0].allocation_id }}"
           - SubnetId: "{{  public_subnet_2.subnet.id }}"
             AllocationId: "{{ eip_two.addresses[0].allocation_id }}"
+        purge_listeners: no
+        purge_tags: no
         listeners:
           - Protocol: TCP
             Port: 80
@@ -80,12 +83,12 @@
           tag:Name: Module5-server-asg
           instance-state-name: "running"
       register: asg_ec2
-    - name: Debug EC2 info
-      debug: var=asg_ec2
+#    - name: Debug EC2 info
+#      debug: var=asg_ec2
     - name: Grab running EC2s
       set_fact: running_asg_ec2s="{% for x in asg_ec2.instances %}{{ x.instance_id }}{% endfor %}"
-    - name: Debug EC2s in ASG info
-      debug: var=running_asg_ec2s
+#    - name: Debug EC2s in ASG info
+#      debug: var=running_asg_ec2s
     - name: Create Auto Scaling Group
       ec2_asg:
         name: Module5_asg

@@ -131,12 +131,16 @@
         description: Postgres-tag security group
         vpc_id: "{{ vpc.vpc.id }}"
         state: present
+        purge_rules: no
+        purge_rules_egress: no
       register: postgres_tag_sg
     - name: Create postgres security group
       ec2_group:
         name: Module5-postgres-sg
         description: Postgres security group
         vpc_id: "{{ vpc.vpc.id }}"
+        purge_rules: no
+        purge_rules_egress: no
         rules:
           - proto: tcp
             ports: 5432
@@ -153,6 +157,8 @@
         name: Module5-postgres-tag-sg
         description: Postgres-tag security group
         vpc_id: "{{ vpc.vpc.id }}"
+        purge_rules: no
+        purge_rules_egress: no
         rules_egress:
           - proto: tcp
             ports: 5432
@@ -189,12 +195,16 @@
       ec2_group:
         name: Module5-endpoint-sg
         description: Used for endpoint access to RDS
+        purge_rules: no
+        purge_rules_egress: no
         vpc_id: "{{ vpc.vpc.id }}"
         state: present
     - name: Create endpoint-tag security group
       ec2_group:
         name: Module5-endpoint-tag-sg
         description: Used for endpoint to RDS
+        purge_rules: no
+        purge_rules_egress: no
         vpc_id: "{{ vpc.vpc.id }}"
         rules:
           - proto: tcp
@@ -206,6 +216,8 @@
       ec2_group:
         name: Module5-endpoint-sg
         description: Used for endpoint access to RDS
+        purge_rules: no
+        purge_rules_egress: no
         vpc_id: "{{ vpc.vpc.id }}"
         rules:
           - proto: tcp

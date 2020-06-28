@@ -1,0 +1,110 @@
+---
+- hosts: localhost
+  # skips gathering all of the facts about the instance
+  gather_facts: no
+  vars:
+    aws_region: "us-east-2"
+  module_defaults:
+    group/aws:
+      region: "{{ aws_region }}"
+  tasks:
+   - name: Create postgres-tag security group
+      ec2_group:
+        name: Module5-postgres-tag-sg
+        description: Postgres-tag security group
+        vpc_id: "{{ vpc.vpc.id }}"
+        state: present
+        purge_rules: no
+        purge_rules_egress: no
+      register: postgres_tag_sg
+    - name: Create postgres security group
+      ec2_group:
+        name: Module5-postgres-sg
+        description: Postgres security group
+        vpc_id: "{{ vpc.vpc.id }}"
+        purge_rules: no
+        purge_rules_egress: no
+        rules:
+          - proto: tcp
+            ports: 5432
+            group_id: "{{ postgres_tag_sg.group_id }}"
+        rules_egress:
+          - proto: all
+            from_port: 1
+            to_port: 65535
+            cidr_ip: 0.0.0.0/0
+        state: present
+      register: postgres_sg
+    - name: Add postgres-tag-sg to postgres-sg
+      ec2_group:
+        name: Module5-postgres-tag-sg
+        description: Postgres-tag security group
+        vpc_id: "{{ vpc.vpc.id }}"
+        purge_rules: no
+        purge_rules_egress: no
+        rules_egress:
+          - proto: tcp
+            ports: 5432
+            group_id: "{{ postgres_sg.group_id }}"
+        state: present
+    - name: Create nginx servers security group
+      ec2_group:
+        name: Module5-nginx-servers-sg
+        description: Allows HTTP in from internal public subnets
+        vpc_id: "{{ vpc.vpc.id }}"
+        rules:
+          - proto: tcp
+            ports: 80
+            cidr_ip: 10.10.0.0/24
+          - proto: tcp
+            ports: 80
+            cidr_ip: 10.10.1.0/24
+        rules_egress:
+          - proto: tcp
+            from_port: 1
+            to_port: 65535
+            cidr_ip: 0.0.0.0/0
+        state: present
+      register: nginx_sg
+    - name: Create development security group
+      ec2_group:
+        name: Module5-development-sg
+        description: Used for access from developers
+        vpc_id: "{{ vpc.vpc.id }}"
+        rules: "{{ secrets.development_sg_rules['rules'] }}"
+        rules_egress: "{{ secrets.development_sg_rules['rules_egress'] }}"
+      register: development_sg
+    - name: Create endpoint security group
+      ec2_group:
+        name: Module5-endpoint-sg
+        description: Used for endpoint access to RDS
+        purge_rules: no
+        purge_rules_egress: no
+        vpc_id: "{{ vpc.vpc.id }}"
+        state: present
+    - name: Create endpoint-tag security group
+      ec2_group:
+        name: Module5-endpoint-tag-sg
+        description: Used for endpoint to RDS
+        purge_rules: no
+        purge_rules_egress: no
+        vpc_id: "{{ vpc.vpc.id }}"
+        rules:
+          - proto: tcp
+            from_port: 1
+            to_port: 65535
+            group_name: Module5-endpoint-sg
+        state: present
+    - name: Add endpoint-tag-sg to endpoint-sg
+      ec2_group:
+        name: Module5-endpoint-sg
+        description: Used for endpoint access to RDS
+        purge_rules: no
+        purge_rules_egress: no
+        vpc_id: "{{ vpc.vpc.id }}"
+        rules:
+          - proto: tcp
+            from_port: 1
+            to_port: 65535
+            group_name: Module5-endpoint-tag-sg
+        state: present
