@@ -1,6 +1,6 @@
 ---
 - hosts: localhost
-  gather_facts: no
+  gather_facts: no 
   module_defaults:
     group/aws:
       region: "us-east-2"
@@ -16,8 +16,8 @@
         state: present
         health_check_path: /
       register: nlb_tg
- #   - name: Show debug for NLB-TG
- #     debug: var=nlb_tg
+#    - name: Show debug for NLB-TG
+#      debug: var=nlb_tg
     - name: Get first EIP
       ec2_eip_info:
         filters:
@@ -40,8 +40,7 @@
             AllocationId: "{{ eip_one.addresses[0].allocation_id }}"
           - SubnetId: "{{  public_subnet_2.subnet.id }}"
             AllocationId: "{{ eip_two.addresses[0].allocation_id }}"
-        purge_listeners: no
-        purge_tags: no
+        purge_listeners: yes 
         listeners:
           - Protocol: TCP
             Port: 80
@@ -56,6 +55,9 @@
               - Type: forward
                 TargetGroupName: "{{ nlb_tg.target_group_name }}"
         state: present
+      register: nlb
+#    - name: Show Network Load Balancer info
+#      debug: var=nlb
     - name: Create Launch Template
       ec2_launch_template:
         name: "Module5_launch_template"
@@ -83,10 +85,14 @@
           tag:Name: Module5-server-asg
           instance-state-name: "running"
       register: asg_ec2
-#    - name: Debug EC2 info
-#      debug: var=asg_ec2
-    - name: Grab running EC2s
-      set_fact: running_asg_ec2s="{% for x in asg_ec2.instances %}{{ x.instance_id }}{% endfor %}"
+    - name: Show asg_ec2 instances
+      debug: var=asg_ec2.instances
+    - name: Restart EC2 instances if Network Load Balancer changed
+      ec2:
+        state: 'absent'
+        instance_ids: "{{ item.instance_id}}" 
+      with_items: "{{ asg_ec2.instances }}" 
+      when: nlb['changed'] == true
 #    - name: Debug EC2s in ASG info
 #      debug: var=running_asg_ec2s
     - name: Create Auto Scaling Group
